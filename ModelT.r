@@ -1,13 +1,18 @@
+setwd("C:/Users/makarand.ghule/Documents/AttritionAnalysis/20161220 P3 (SQL)")
 # install.packages("RODBC")
 library(RODBC)
-odbcCloseAll()
+odbcCloseAll()# odbcClose(edw_bi)
 edw_bi <- odbcConnect("PulseDB_EDW_BI")
-active <- sqlFetch(edw_bi, "AttAnalysis_tblActiveEmployees")
-inactive <- sqlFetch(edw_bi, "AttAnalysis_tblInActiveEmployees")
-dataa <- rbind(active, inactive)
-AR <- subset(dataa, dataa$VerticalName == "Accounts Receivable")
-TM <- subset(AR, JobRole == "Team Member")
-Current <- subset(TM, as.numeric(format(TM$DateOfRelieving, '%Y')) == 1900 | as.numeric(format(TM$DateOfRelieving, '%Y'))  >= 2015 )
+head(sqlTables(edw_bi, tableType = "TABLE", schema = "dbo"), 10)
+active <- sqlFetch(edw_bi, "AttAnalysis_tblActiveEmployees"); nrow(active)
+inactive <- sqlFetch(edw_bi, "AttAnalysis_tblInActiveEmployees"); nrow(inactive)
+dataa <- rbind(active, inactive); nrow(dataa); nrow(active) +  nrow(inactive) 
+AR <- subset(dataa, dataa$VerticalName == "Accounts Receivable");nrow(AR) # ____
+TM <- subset(AR, JobRole == "Team Member"); nrow(TM); # ___
+Current <- subset(TM, as.numeric(format(TM$DateOfRelieving, '%Y')) == 1900 | as.numeric(format(TM$DateOfRelieving, '%Y'))  >= 2015 ); nrow(Current) # _____
+
+names(Current)
+
 
 ################ Attrition ##########
 
@@ -32,6 +37,7 @@ library(lubridate)
 
 Current$EmployeeAge <- ifelse(Current$Status=="Current", interval(Current$DateofBirth, today())/duration(num=1, units = "years"), interval(Current$DateofBirth, Current$DateOfRelieving)/duration(num=1, units = "years"))
 summary(Current$EmployeeAge)
+
 
 ############ modified variables ###############
 levels(Current$TransportMode)[levels(Current$TransportMode)=="- No Transport -"] <- NA
@@ -1242,6 +1248,330 @@ t2 <- arrange.vars(t, c("Prediction"=1, "Status"=2))
 
 
 
+
+########################## 7 Diagnostic #############################
+
+
+# Hosmer-Lemeshow Goodness of Fit
+
+# How well our model fits depends on the difference between the model and the observed data.  
+
+install.packages("ResourceSelection")
+library(ResourceSelection)
+
+hoslem.test(training$Available, fitted(logit1))
+
+
+
+
+################ ULCA ##############
+
+install.packages("packagename")
+install.packages("aod")
+library(aod)
+library(ggplot2)
+library(Rcpp)
+
+
+## CIs using profiled log-likelihood
+cbind(exp(logit1$coefficients), exp(confint(logit1)))
+#  Wald confidence limits
+cbind(exp(logit1$coefficients), exp(confint.default(logit1)))
+
+# overall effect
+wald.test(b = coef(logit1), Sigma = vcov(logit1), Terms = 6:7) #Work Location
+
+wald.test(b = coef(logit1), Sigma = vcov(logit1), Terms = 8:9) # Job Role
+
+wald.test(b = coef(logit1), Sigma = vcov(logit1), Terms = 10:11) # Experience Type
+
+wald.test(b = coef(logit1), Sigma = vcov(logit1), Terms = 13:24) # Courses
+
+wald.test(b = coef(logit1), Sigma = vcov(logit1), Terms = 28:37) # Shift
+
+wald.test(b = coef(logit1), Sigma = vcov(logit1), Terms = 38:42) # Transport Mode
+
+wald.test(b = coef(logit1), Sigma = vcov(logit1), Terms = 43:44) # Engagement Index
+
+
+# hypotheses about the differences in the coefficients for the different levels of rank
+l <- cbind(0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0  )
+wald.test(b = coef(logit1), Sigma = vcov(logit1), L = l)
+
+
+
+
+#### probabilities plot ####
+dev.off()
+
+
+newdata3 <- cbind(dataset3, predict(logit1, newdata=dataset3, type="link", se=TRUE))
+newdata3 <- within(newdata3, {
+              PredictedProb  <- plogis(fit)
+              LL <- plogis(fit - (1.96*se.fit))
+              UL <- plogis(fit + (1.96*se.fit))
+})
+head(newdata3)
+library(ggplot2)
+
+
+##  ExperienceinAGS by Work Location
+ggplot(newdata3, aes(x=ExperienceInAGS, y=PredictedProb)) + 
+  geom_ribbon(aes(ymin=LL, ymax=UL, fill=WorkLocation), alpha=0.2) +
+  geom_line(aes(color=WorkLocation), size=1)
+
+# ProdAvgDuring Notice by WorkLocation
+ggplot(newdata3, aes(x = ProdAvgDuringNotice, y = PredictedProb)) +
+  geom_ribbon(aes(ymin = LL, ymax = UL, fill = WorkLocation), alpha = .2) +
+  geom_line(aes(colour = WorkLocation), size=1)
+
+# ProdAvgDuring Notice by Gender
+ggplot(newdata3, aes(x = ProdAvgDuringNotice, y = PredictedProb)) +
+  geom_ribbon(aes(ymin = LL, ymax = UL, fill = Gender), alpha = .2) +
+  geom_line(aes(colour = Gender), size=1)
+
+# Age Vs Gender
+ggplot(newdata3, aes(x = EmployeeAge, y = PredictedProb)) +
+  geom_ribbon(aes(ymin = LL, ymax = UL, fill = Gender), alpha = .2) +
+  geom_line(aes(colour = Gender), size=1)
+
+# Age By Gender
+ggplot(newdata3, aes(x = EmployeeAge, y = PredictedProb)) +
+  geom_ribbon(aes(ymin = LL, ymax = UL, fill = MaritalStatus), alpha = .2) +
+  geom_line(aes(colour = MaritalStatus), size=1)
+
+# ExperinenceinAGS by WorkLocation
+ggplot(newdata3, aes(x=ExperienceInAGS, y=PredictedProb)) + 
+  geom_ribbon(aes(ymin=LL, ymax=UL, fill=WorkLocation), alpha=0.2) + 
+  geom_line(aes(colour=WorkLocation), size=1)
+
+summary(logit1)
+pchisq(3087.0-1341.5, (2234-2191))
+pchisq(1341.5, 2191)
+anova(logit1, test="Chisq")
+drop1(logit1, test="Chisq")
+
+
+
+## over / underdispersion  ###
+install.packages("AER")
+library(AER)
+deviance(logit1)/logit1$df.residual
+
+# influential and leverage points,
+library(car)
+influencePlot(logit1, col = c(1, 2), identify.cex=par("cex"), identify.col=par("col"))
+# labels = names(rstud),
+
+
+
+
+######################### random forest and decision Tree ###############
+
+
+library(ggplot2)
+pred = prediction(pred2,  dataset3$Availability_Filter)
+
+pe <- performance(pred, "tpr", "fpr")
+au <- performance(pred, "auc")@y.values[[1]]
+pd <- data.frame(fpr=unlist(pe@x.values), tpr=unlist(pe@y.values))
+p <- ggplot(pd, aes(x=fpr, y=tpr))
+p <- p + geom_line(colour="red")
+p <- p + xlab("False Positive Rate") + ylab("True Positive Rate")
+p <- p + ggtitle("ROC Curve Linear 20161116ARFollowUp.csv Availability_Filter")
+p <- p + theme(plot.title=element_text(size=10))
+p <- p + geom_line(data=data.frame(), aes(x=c(0,1), y=c(0,1)), colour="grey")
+p <- p + annotate("text", x=0.50, y=0.00, hjust=0, vjust=0, size=5,
+                  label=paste("AUC =", round(au, 2)))
+print(p)
+
+########################################### RANDOM FOREST ###################################
+
+
+library(randomForest)
+set.seed(200)
+library(caret)
+# install.packages("e1071")
+library(e1071)
+
+# Define cross-validation experiment
+fitControl = trainControl( method = "cv", number = 10 )
+cartGrid = expand.grid( .cp = (1:50)*0.01) 
+
+
+rforest1 <- randomForest(Availability_Filter ~ ExperienceInAGS + EmployeeAge + Gender + MaritalStatus + WorkLocation + JobRole + 
+                           ExperienceType + ProdAvgDuringNotice + Course + Last30DaysLeaveCount + TotalExtraHoursWorked + 
+                           Function + Shift + TransportMode + EngagementIndex, 
+                         data=training, ntree=200, nodesize=25, method = "rpart", trControl = fitControl, tuneGrid = cartGrid  )
+
+################## prediction on training dataset
+set.seed(50)
+predictForest <- predict(rforest1)
+table(training$Availability_Filter, predictForest)
+accTrain <- (1064+948)/(1064+133+90+948); accTrain
+senTrain <- 948/(948+90); senTrain
+speTrain <- 1064/(1064+133); speTrain
+
+
+# predictionon Test dataset
+
+set.seed(50)
+predictForest2 <- predict(rforest1, newdata=testing)
+table(testing$Availability_Filter, predictForest2)
+accRFTest <- (302+190)/(302+27+24+190); accRFTest
+sensRFTest <- 190/(190+24); sensRFTest
+specRFTest <- 302/(302+27); specRFTest
+
+
+
+############ prediciton on all data ##########
+dataset3 <- rbind(training, testing)
+predRF2 <- predict(rforest1, newdata = dataset3, type = "class")
+
+tRF <- cbind(predRF2, dataset3 )
+head(tRF)
+
+write.csv(tRF, file="C:/Users/makarand.ghule/Documents/AttritionAnalysis/20161116ARFollowUp_all_scoreRF2.csv", row.names=FALSE)
+
+library(ggplot2)
+predRF = prediction(as.numeric(predRF2),  as.numeric(dataset3$Availability_Filter))
+
+pe <- performance(predRF, "tpr", "fpr")
+au <- performance(predRF, "auc")@y.values[[1]]
+
+
+plot(au, colorize=TRUE, print.cutoffs.at=seq(0,1,by=0.1), text.adj=c(-0.2,1.7), main="ROC Plot")
+as.numeric(performance(predAllROC2, "auc")@y.values)
+
+
+
+randomForest::varImpPlot(rforest1, main="Variable Importance Random Forest")
+
+# Plot the error rate against the number of trees.
+
+plot(rforest1, main="Error Rates Random Forest")
+legend("topright", c("OOB", "Current Employee", "Employee Left"), text.col=1:6, lty=1:3, col=1:3)
+
+
+
+
+############################ Decision Tree ######################################
+
+
+library(rpart)
+library(rpart.plot)
+
+rTree <- rpart(Availability_Filter ~ ExperienceInAGS + EmployeeAge + Gender + MaritalStatus + WorkLocation + JobRole + 
+                 ExperienceType + ProdAvgDuringNotice + Course + Last30DaysLeaveCount + TotalExtraHoursWorked + 
+                 Function + Shift + TransportMode + EngagementIndex, 
+               data=training, method="class",  control=rpart.control(minbucket=25))
+prp(rTree)
+print(rTree)
+printcp(rTree)
+predictCARTTrain <- predict(rTree, type="class")
+table(predictCARTTrain, training$Availability_Filter)
+accCARTTrain <- (1032+940)/(1032+98+165+940); accCARTTrain
+sensCARTTrain <- 940/(940+165); sensCARTTrain
+specCARTTrain <- 1032/(1032+98); specCARTTrain
+
+## testing Data ####
+PredictROC = predict(rTree, newdata = testing, type="class")
+table(PredictROC, testing$Availability_Filter)
+accCARTTest <- (338+313)/(338+33+61+313); accCARTTest
+sensCARTTest <- 313/(313+61); sensCARTTest
+specCARTTest <- 338/(33+338); specCARTTest
+library(ROCR)
+
+
+## All Data ####
+PredictROC = predict(rTree, newdata = dataset3, type="class")
+table(PredictROC, dataset3$Availability_Filter)
+accCARTAll <- (1370+1253)/(1370+131+226+1253); accCARTAll
+sensCARTAll <- 1253/(1253+226); sensCARTAll
+specCARTAll <- 1370/(1370+131); specCARTAll
+library(ROCR)
+
+dataset3 <- rbind(training, testing)
+
+nrow(dataset3)
+t <- cbind(PredictROC, dataset3 )
+head(t)
+
+write.csv(t, file="C:/Users/makarand.ghule/Documents/AttritionAnalysis/20161116ARFollowUp_ROCR.csv", row.names=FALSE)
+
+
+
+
+
+
+
+predAllROC <- predict(rTree, newdata=dataset3, type="class")
+predAllROC2 = prediction(as.numeric(predAllROC), as.numeric(dataset3$Availability_Filter))
+perfTree <- performance(predAllROC2, "tpr", "fpr")
+
+plot(perfTree, colorize=TRUE, print.cutoffs.at=seq(0,1,by=0.1), text.adj=c(-0.2,1.7), main="ROC Plot")
+as.numeric(performance(predAllROC2, "auc")@y.values)
+
+
+
+
+
+## model comparisons
+plot(perfTree, colorize=TRUE, print.cutoffs.at=seq(0,1,by=0.1), text.adj=c(-0.2,1.7), main="ROC Plot")
+
+
+
+
+
+
+
+
+### Leverage 
+lev=hat(model.matrix(logit1))
+plot(lev)
+infl <- training[lev>0.2,]
+infl
+
+
+cook  = cooks.distance(logit1)
+plot(cook,ylab="Cooks distances")
+points(infl, cook[infl], col="red")
+
+
+
+
+##arrange df vars by position
+##'vars' must be a named vector, e.g. c("var.name"=1)
+arrange.vars <- function(data, vars){
+                          ##stop if not a data.frame (but should work for matrices as well)
+                          stopifnot(is.data.frame(data))
+                          
+                          ##sort out inputs
+                          data.nms <- names(data)
+                          var.nr <- length(data.nms)
+                          var.nms <- names(vars)
+                          var.pos <- vars
+                          ##sanity checks
+                          stopifnot( !any(duplicated(var.nms)), 
+                                     !any(duplicated(var.pos)) )
+                          stopifnot( is.character(var.nms), 
+                                     is.numeric(var.pos) )
+                          stopifnot( all(var.nms %in% data.nms) )
+                          stopifnot( all(var.pos > 0), 
+                                     all(var.pos <= var.nr) )
+                          
+                          ##prepare output
+                          out.vec <- character(var.nr)
+                          out.vec[var.pos] <- var.nms
+                          out.vec[-var.pos] <- data.nms[ !(data.nms %in% var.nms) ]
+                          stopifnot( length(out.vec)==var.nr )
+                          
+                          ##re-arrange vars by position
+                          data <- data[ , out.vec]
+                          return(data)
+}
+
+t2 <- arrange.vars(t, c("Prediction"=1, "Status"=2))
 
 
 
